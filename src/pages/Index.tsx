@@ -34,7 +34,7 @@ export default function Index() {
   useEffect(() => { const timer = window.setInterval(() => setNow(new Date()), 1000); return () => window.clearInterval(timer); }, []);
   const date = new Intl.DateTimeFormat("en", { weekday: "long", month: "long", day: "numeric" }).format(now);
   const time = new Intl.DateTimeFormat("en", { hour: "2-digit", minute: "2-digit", second: "2-digit" }).format(now);
-  const launchApp = (event: React.MouseEvent<HTMLAnchorElement>, url: string) => { event.preventDefault(); window.open(url, "_blank", "popup=yes,width=1100,height=800"); };
+  const launchApp = (event: React.MouseEvent<HTMLAnchorElement>, url: string) => { event.preventDefault(); window.open(url, "RainApps", "popup=yes,width=1100,height=800"); };
   return <div className="min-h-screen bg-[#101114] text-[#f2f3f5] md:flex">
     <aside className="w-full border-b border-[#292b30] bg-[#151619] px-5 py-5 md:fixed md:inset-y-0 md:flex md:w-[252px] md:flex-col md:border-b-0 md:border-r md:px-6 md:py-7">
       <div className="mt-9 hidden text-[10px] font-bold uppercase tracking-[1.6px] text-[#a0a3aa] md:block">Workspace</div>
