@@ -16,7 +16,7 @@ const categories = ["All apps", "Favorites", "Work", "Design", "Planning", "Pers
 const iconColors = ["#e8e4fc", "#dff1eb", "#fae6d8", "#e1ebfa", "#f8e2e7", "#e9edcf"];
 
 export default function Index() {
-  const [apps, setApps] = useState<AppItem[]>(() => { try { const saved = localStorage.getItem("launchpad-apps"); return saved ? JSON.parse(saved) : starterApps; } catch { return starterApps; } });
+  const [apps, setApps] = useState<AppItem[]>(() => { try { const saved = localStorage.getItem("launchpad-apps"); const loaded: AppItem[] = saved ? JSON.parse(saved) : []; const cleaned = loaded.filter(app => !["notion", "figma", "slack", "linear", "google-calendar", "drive", "spotify", "todoist"].includes(app.id)); if (cleaned.length !== loaded.length) localStorage.setItem("launchpad-apps", JSON.stringify(cleaned)); return cleaned; } catch { return []; } });
   const [active, setActive] = useState("All apps");
   const [query, setQuery] = useState("");
   const [dialog, setDialog] = useState(false);
