@@ -1,74 +1,39 @@
 import { useEffect, useState } from "react";
-import { useNavigate, useLocation } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Clock3 } from "lucide-react";
 
 export default function AuthCallback() {
   const [status, setStatus] = useState("Processing authentication...");
   const navigate = useNavigate();
-  const location = useLocation();
 
   useEffect(() => {
     const handleAuthCallback = async () => {
       try {
-        // Try to get session first (this may pick up tokens from URL automatically)
-        const { data: { session }, error: sessionError } = await supabase.auth.getSession();
-        if (sessionError) throw sessionError;
-
-        if (session) {
-          setStatus("Authentication successful! Redirecting...");
-          setTimeout(() => navigate("/", { replace: true }), 1000);
+        const { data, error } = await supabase.auth.getSession();
+        if (error) {
+          console.error("Auth callback error:", error);
+          setStatus("Authentication failed. Please try again.");
+          setTimeout(() => navigate("/login", { replace: true }), 2000);
           return;
         }
 
-        // If no session yet, try to extract tokens from URL hash or search
-        let accessToken = "";
-        let refreshToken = "";
-
-        // Check hash first
-        const hashParams = new URLSearchParams(window.location.hash.substring(1));
-        accessToken = hashParams.get("access_token") || "";
-        refreshToken = hashParams.get("refresh_token") || "";
-
-        // Also check search params
-        if (!accessToken) {
-          const searchParams = new URLSearchParams(window.location.search);
-          accessToken = searchParams.get("access_token") || "";
-          refreshToken = searchParams.get("refresh_token") || "";
-        }
-
-        if (accessToken && refreshToken) {
-          // Exchange code for session
-          const { data, error } = await supabase.auth.setSession({
-            access_token: accessToken,
-            refresh_token: refreshToken,
-          });
-          if (error) throw error;
-
-          const { data: { session: newSession }, error: newSessionError } = await supabase.auth.getSession();
-          if (newSessionError) throw newSessionError;
-
-          if (newSession) {
-            setStatus("Authentication successful! Redirecting...");
-            setTimeout(() => navigate("/", { replace: true }), 1000);
-          } else {
-            setStatus("Authentication incomplete. Please try again.");
-            setTimeout(() => navigate("/login", { replace: true }), 2000);
-          }
+        if (data.session) {
+          setStatus("Authentication successful! Redirecting...");
+          setTimeout(() => navigate("/", { replace: true }), 1000);
         } else {
-          // No tokens found, check if this is just a regular redirect
           setStatus("Authentication incomplete. Please try again.");
           setTimeout(() => navigate("/login", { replace: true }), 2000);
         }
       } catch (err) {
-        console.error("Auth callback error:", err);
-        setStatus("An error occurred during authentication. Please try again.");
+        console.error("Unexpected error:", err);
+        setStatus("An unexpected error occurred. Please try again.");
         setTimeout(() => navigate("/login", { replace: true }), 2000);
       }
     };
 
     handleAuthCallback();
-  }, [navigate, location]);
+  }, [navigate]);
 
   return (
     <div className="min-h-screen bg-[#101114] text-[#f2f3f5] flex items-center justify-center p-4">
