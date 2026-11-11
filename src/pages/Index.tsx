@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { ArrowUpRight, FilePlus2, FileText, X as CloseIcon, Bookmark, BriefcaseBusiness, CalendarDays, Check, ChevronDown, CircleHelp, Clock3, Command, Grid2X2, LayoutDashboard, Link2, Plus, Search, Settings2, Sparkles, Star, X, LogOut, User } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { SessionContext } from "@/components/SessionContextProvider";
