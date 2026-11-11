@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
-import { Mail, Lock, ArrowRight, X } from "lucide-react";
+import { Mail, Lock, ArrowRight, X, CheckCircle, AlertCircle } from "lucide-react";
 
 export default function Login() {
   const [email, setEmail] = useState("");
@@ -8,11 +8,16 @@ export default function Login() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [mode, setMode] = useState<"signin" | "signup">("signin");
+  const [signupSuccess, setSignupSuccess] = useState(false);
+  const [confirmationEmail, setConfirmationEmail] = useState<string | null>(null);
+  const [showConfirmation, setShowConfirmation] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
     setLoading(true);
+    setConfirmationEmail(null);
+    setShowConfirmation(false);
 
     try {
       if (mode === "signin") {
@@ -22,7 +27,7 @@ export default function Login() {
         });
         if (authError) throw authError;
       } else {
-        const { error: authError } = await supabase.auth.signUp({
+        const { error: authError, data } = await supabase.auth.signUp({
           email,
           password,
           options: {
@@ -30,9 +35,20 @@ export default function Login() {
           },
         });
         if (authError) throw authError;
+        
+        // Show success message for signup
+        setSignupSuccess(true);
+        setConfirmationEmail(email);
+        setShowConfirmation(true);
+        // Clear success message after 5 seconds
+        setTimeout(() => setSignupSuccess(false), 5000);
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "An error occurred");
+      // Don't clear confirmation email if it's a signup success
+      if (mode !== "signup") {
+        setConfirmationEmail(null);
+      }
     } finally {
       setLoading(false);
     }
@@ -56,6 +72,34 @@ export default function Login() {
         </div>
 
         <div className="rounded-[22px] border border-[#303238] bg-[#1c1e22] p-6 shadow-xl">
+          {showConfirmation && confirmationEmail && (
+            <div className="mb-5 rounded-lg bg-[#e6f7f0] border border-[#5b8c5a] px-4 py-3 text-[13px] text-[#276749]">
+              <div className="flex items-start gap-2">
+                <CheckCircle size={16} className="mt-0.5 text-[#10b981] flex-shrink-0" />
+                <div>
+                  <p className="font-medium mb-1">Check your email</p>
+                  <p>
+                    We've sent a confirmation link to <span className="font-semibold">{confirmationEmail}</span>. Please click the link to verify your email address.
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {signupSuccess && !showConfirmation && (
+            <div className="mb-5 rounded-lg bg-[#e6f7f0] border border-[#5b8c5a] px-4 py-3 text-[13px] text-[#276749]">
+              <div className="flex items-start gap-2">
+                <CheckCircle size={16} className="mt-0.5 text-[#10b981] flex-shrink-0" />
+                <div>
+                  <p className="font-medium mb-1">Almost there!</p>
+                  <p>
+                    A confirmation link has been sent to <span className="font-semibold">{confirmationEmail}</span>. Please check your email and click the link to verify your account.
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
               <label className="block text-[11px] font-semibold text-[#c3c5cb] mb-2">
@@ -86,7 +130,7 @@ export default function Login() {
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="••••••••"
                   required
-                  className="h-11 w-full rounded-xl border border-[#383a40] bg-[#151619] pl-10 pr-3.5 text-[13px] text-[#f2f3f5] outline-none transition focus:border-[#141b7b] focus:ring-2 focus:ring-[#141b7b]/20 placeholder:text-[#858991]"
+                  className="h-11 w-full rounded-xl border border-[#383a40] bg-[#151619] pl-10 pr-3.5 text-[13px] text-[#f2f3f5] outline-none transition focus:border-[#8f94cb] focus:ring-2 focus:ring-[#141b7b]/20 placeholder:text-[#858991]"
                 />
               </div>
             </div>
@@ -112,6 +156,9 @@ export default function Login() {
               onClick={() => {
                 setMode(mode === "signin" ? "signup" : "signin");
                 setError(null);
+                setSignupSuccess(false);
+                setConfirmationEmail(null);
+                setShowConfirmation(false);
               }}
               className="text-[12px] text-[#a0a3aa] hover:text-[#c3c8ff] transition"
             >
