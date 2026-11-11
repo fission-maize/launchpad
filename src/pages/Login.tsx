@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
-import { Mail, Lock, ArrowRight, X, CheckCircle, AlertCircle } from "lucide-react";
+import { Mail, Lock, ArrowRight, X, CheckCircle, AlertCircle, RefreshCw } from "lucide-react";
 
 export default function Login() {
   const [email, setEmail] = useState("");
@@ -11,6 +11,8 @@ export default function Login() {
   const [signupSuccess, setSignupSuccess] = useState(false);
   const [confirmationEmail, setConfirmationEmail] = useState<string | null>(null);
   const [showConfirmation, setShowConfirmation] = useState(false);
+  const [resendSent, setResendSent] = useState(false);
+  const [resendError, setResendError] = useState<string | null>(null);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -18,6 +20,8 @@ export default function Login() {
     setLoading(true);
     setConfirmationEmail(null);
     setShowConfirmation(false);
+    setResendSent(false);
+    setResendError(null);
 
     try {
       if (mode === "signin") {
@@ -54,6 +58,33 @@ export default function Login() {
     }
   };
 
+  const handleResendConfirmation = async () => {
+    setResendSent(false);
+    setResendError(null);
+    
+    if (!confirmationEmail) return;
+    
+    try {
+      // Send a new confirmation email (magic link / signup confirmation)
+      const { error: resendError } = await supabase.auth.signInWithOtp({
+        email: confirmationEmail,
+        options: {
+          emailRedirectTo: new URL("/auth/callback", window.location.origin).href,
+          // This sends a confirmation/signup email
+        },
+      });
+      
+      if (resendError) throw resendError;
+      
+      setResendSent(true);
+      // Clear after 5 seconds
+      setTimeout(() => setResendSent(false), 5000);
+    } catch (err) {
+      setResendError(err instanceof Error ? err.message : "Failed to resend confirmation email");
+      setTimeout(() => setResendError(null), 5000);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-[#101114] text-[#f2f3f5] flex items-center justify-center p-4">
       <div className="w-full max-w-[420px]">
@@ -83,6 +114,19 @@ export default function Login() {
                   </p>
                 </div>
               </div>
+              {resendSent ? (
+                <p className="mt-2 text-[12px] text-[#8f94cb]">
+                  Confirmation email resent successfully!
+                </p>
+              ) : (
+                <button
+                  onClick={handleResendConfirmation}
+                  className="mt-2 inline-flex items-center gap-2 rounded-xl bg-[#1e293b] px-4 py-2 text-[12px] font-medium text-[#c3c8ff] hover:bg-[#252d93] transition"
+                >
+                  <RefreshCw size={16} className="text-[#141b7b]" />
+                  Resend confirmation email
+                </button>
+              )}
             </div>
           )}
 
@@ -97,6 +141,19 @@ export default function Login() {
                   </p>
                 </div>
               </div>
+              {resendSent ? (
+                <p className="mt-2 text-[12px] text-[#8f94cb]">
+                  Confirmation email resent successfully!
+                </p>
+              ) : (
+                <button
+                  onClick={handleResendConfirmation}
+                  className="mt-2 inline-flex items-center gap-2 rounded-xl bg-[#1e293b] px-4 py-2 text-[12px] font-medium text-[#c3c8ff] hover:bg-[#252d93] transition"
+                >
+                  <RefreshCw size={16} className="text-[#141b7b]" />
+                  Resend confirmation email
+                </button>
+              )}
             </div>
           )}
 
@@ -159,6 +216,8 @@ export default function Login() {
                 setSignupSuccess(false);
                 setConfirmationEmail(null);
                 setShowConfirmation(false);
+                setResendSent(false);
+                setResendError(null);
               }}
               className="text-[12px] text-[#a0a3aa] hover:text-[#c3c8ff] transition"
             >
