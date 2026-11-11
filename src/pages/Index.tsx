@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ArrowUpRight, FilePlus2, FileText, X as CloseIcon, Bookmark, BriefcaseBusiness, CalendarDays, Check, ChevronDown, CircleHelp, Clock3, Command, Grid2X2, LayoutDashboard, Link2, Plus, Search, Settings2, Sparkles, Star, X } from "lucide-react";
+import { ArrowUpRight, FilePlus2, FileText, X as CloseIcon, Bookmark, BriefcaseBusiness, CalendarDays, Check, ChevronDown, CircleHelp, Clock3, Command, Grid2X2, LayoutDashboard, Link2, Plus, Search, Settings2, Sparkles, Star, X, LogOut, User } from "lucide-react";
+import { supabase } from "@/integrations/supabase/client";
+import { SessionContext } from "@/components/SessionContextProvider";
 
 type AppItem = { id: string; name: string; description: string; category: string; url: string; color: string; icon: string; favorite: boolean };
 const starterApps: AppItem[] = [
@@ -30,6 +32,7 @@ type FileSystemDirectoryReader = {
 };
 
 export default function Index() {
+  const { session } = React.useContext(SessionContext);
   const [apps, setApps] = useState<AppItem[]>(() => { try { const saved = localStorage.getItem("launchpad-apps"); const loaded: AppItem[] = saved ? JSON.parse(saved) : []; const cleaned = loaded.filter(app => ![ "notion", "figma", "slack", "linear", "google-calendar", "drive", "spotify", "todoist" ].includes(app.id)); if (cleaned.length !== loaded.length) localStorage.setItem("launchpad-apps", JSON.stringify(cleaned)); return cleaned; } catch { return []; } });
   const [active, setActive] = useState("All apps");
   const [query, setQuery] = useState("");
@@ -37,8 +40,80 @@ export default function Index() {
   const [form, setForm] = useState({ name: "", url: "", category: "Work", description: "" });
   const [toast, setToast] = useState("");
   const [localFiles, setLocalFiles] = useState<File[]>([]);
+  const [loadingApps, setLoadingApps] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const folderInputRef = useRef<HTMLInputElement>(null);
+
+  // Load apps from Supabase when user signs in
+  useEffect(() => {
+    if (session?.user) {
+      loadAppsFromSupabase();
+    }
+  }, [session]);
+
+  const loadAppsFromSupabase = async () => {
+    if (!session?.user) return;
+    setLoadingApps(true);
+    try {
+      const { data, error } = await supabase
+        .from("user_apps")
+        .select("*")
+        .eq("user_id", session.user.id)
+        .order("created_at", { ascending: false });
+
+      if (error) throw error;
+
+      const loadedApps: AppItem[] = (data || []).map(app => ({
+        id: app.id,
+        name: app.name,
+        description: app.description || "",
+        category: app.category,
+        url: app.url,
+        color: app.color,
+        icon: app.icon,
+        favorite: app.favorite,
+      }));
+
+      setApps(loadedApps);
+      localStorage.setItem("launchpad-apps", JSON.stringify(loadedApps));
+    } catch (err) {
+      console.error("Failed to load apps:", err);
+    } finally {
+      setLoadingApps(false);
+    }
+  };
+
+  const persist = async (next: AppItem[]) => {
+    setApps(next);
+    localStorage.setItem("launchpad-apps", JSON.stringify(next));
+
+    if (session?.user) {
+      try {
+        // Sync with Supabase - for simplicity, we'll just update the first app that changed
+        // In a real app, you'd want more sophisticated sync logic
+        const { error } = await supabase
+          .from("user_apps")
+          .upsert(
+            next.map(app => ({
+              id: app.id,
+              user_id: session.user.id,
+              name: app.name,
+              description: app.description,
+              category: app.category,
+              url: app.url,
+              color: app.color,
+              icon: app.icon,
+              favorite: app.favorite,
+              updated_at: new Date().toISOString(),
+            })),
+            { onConflict: "id" }
+          );
+        if (error) throw error;
+      } catch (err) {
+        console.error("Failed to sync apps:", err);
+      }
+    }
+  };
 
   const addLocalFiles = (event: React.ChangeEvent<HTMLInputElement>) => {
     const selected = Array.from(event.target.files ?? []);
@@ -70,14 +145,17 @@ export default function Index() {
     window.setTimeout(() => URL.revokeObjectURL(url), 60000);
   };
 
-  const persist = (next: AppItem[]) => { setApps(next); localStorage.setItem("launchpad-apps", JSON.stringify(next)); };
   const visible = useMemo(() => apps.filter(app => (active === "All apps" || (active === "Favorites" ? app.favorite : app.category === active)) && `${app.name} ${app.description} ${app.category}`.toLowerCase().includes(query.toLowerCase())), [apps, active, query]);
   const toggleFavorite = (id: string) => persist(apps.map(app => app.id === id ? { ...app, favorite: !app.favorite } : app));
-  const addApp = (event: React.FormEvent) => { event.preventDefault(); if (!form.name.trim() || !form.url.trim()) return; const url = /^https?:\/\//i.test(form.url) ? form.url : `https://${form.url}`; const next = [{ id: crypto.randomUUID(), name: form.name.trim(), description: form.description.trim() || "Your handy shortcut", category: form.category, url, color: iconColors[apps.length % iconColors.length], icon: form.name.trim().charAt(0).toUpperCase(), favorite: false }, ...apps]; persist(next); setForm({ name: "", url: "", category: "Work", description: "" }); setDialog(false); setToast("App added to your Rain dashboard"); window.setTimeout(() => setToast(""), 2500); };
+  const addApp = async (event: React.FormEvent) => { event.preventDefault(); if (!form.name.trim() || !form.url.trim()) return; const url = /^https?:\/\//i.test(form.url) ? form.url : `https://${form.url}`; const newApp = { id: crypto.randomUUID(), name: form.name.trim(), description: form.description.trim() || "Your handy shortcut", category: form.category, url, color: iconColors[apps.length % iconColors.length], icon: form.name.trim().charAt(0).toUpperCase(), favorite: false }; const next = [newApp, ...apps]; await persist(next); setForm({ name: "", url: "", category: "Work", description: "" }); setDialog(false); setToast("App added to your Rain dashboard"); window.setTimeout(() => setToast(""), 2500); };
   const [now, setNow] = useState(() => new Date());
   useEffect(() => { const timer = window.setInterval(() => setNow(new Date()), 1000); return () => window.clearInterval(timer); }, []);
   const date = new Intl.DateTimeFormat("en", { weekday: "long", month: "long", day: "numeric" }).format(now);
   const time = new Intl.DateTimeFormat("en", { hour: "2-digit", minute: "2-digit", second: "2-digit" }).format(now);
+
+  const handleSignOut = async () => {
+    await supabase.auth.signOut();
+  };
 
   return <div className="min-h-screen bg-[#101114] text-[#f2f3f5] md:flex">
     <aside className="w-full border-b border-[#292b30] bg-[#151619] px-5 py-5 md:fixed md:inset-y-0 md:flex md:w-[252px] md:flex-col md:border-b-0 md:border-r md:px-6 md:py-7">
@@ -86,13 +164,97 @@ export default function Index() {
       <div className="mt-8 flex items-center justify-between text-[10px] font-bold uppercase tracking-[1.6px] text-[#a0a3aa]"><span>Your apps</span><button aria-label="Add app" onClick={() => setDialog(true)} className="rounded-md p-1 text-[#b0b3ba] hover:bg-[#292b30]"><Plus size={15}/></button></div>
       <nav className="mt-3 grid grid-cols-3 gap-1 md:block md:space-y-1">{categories.map((category, i) => <button key={category} onClick={() => setActive(category)} className={`flex w-full items-center gap-3 rounded-xl px-3.5 py-2.5 text-left text-[13px] font-medium transition ${active === category ? "bg-[#292c42] text-[#c3c8ff]" : "text-[#c0c2c8] hover:bg-[#222429]"}`}>{i === 0 ? <Grid2X2 size={16}/> : i === 1 ? <Star size={16}/> : i === 2 ? <BriefcaseBusiness size={16}/> : i === 3 ? <Sparkles size={16}/> : i === 4 ? <CalendarDays size={16}/> : <CircleHelp size={16}/>}<span className="truncate">{category}</span>{category === "All apps" && <span className="ml-auto hidden text-[11px] text-[#9b9eaa] md:block">{apps.length}</span>}</button>)}</nav>
       <div className="mt-auto hidden rounded-2xl bg-[#1b1d21] p-4 md:block"><div className="flex items-center gap-2 text-[12px] font-semibold"><Clock3 size={15} className="text-[#141b7b]"/>A little focus goes far</div><p className="mt-2 text-[11px] leading-[1.65] text-[#b0b3ba]">Your tools, all in one place. Keep your day moving.</p></div>
-      <button className="mt-7 hidden items-center gap-3 px-3 text-[12px] font-medium text-[#a9acb3] hover:text-white md:flex"><Settings2 size={16}/> Settings <span className="ml-auto"><ChevronDown size={14}/></span></button>
+      {session && (
+        <div className="mt-7 flex items-center gap-3 px-3 py-2 rounded-xl bg-[#1b1d21] border border-[#303238]">
+          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#141b7b] text-white">
+            <User size={16} />
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-[12px] font-medium text-[#f2f3f5] truncate">{session.user.email}</p>
+            <p className="text-[10px] text-[#a0a3aa]">Signed in</p>
+          </div>
+          <button onClick={handleSignOut} className="rounded-lg p-1.5 text-[#a0a3aa] hover:bg-[#292b30] hover:text-white" aria-label="Sign out">
+            <LogOut size={16} />
+          </button>
+        </div>
+      )}
     </aside>
     <main className="min-w-0 flex-1 px-5 pb-12 pt-7 md:ml-[252px] md:px-12 md:pt-10 lg:px-[58px]">
       <header className="flex items-center justify-between"><div><p className="text-[11px] font-semibold uppercase tracking-[1.5px] text-[#a0a3aa]">{date}</p><p className="mt-2 font-sans text-[27px] font-medium leading-none tracking-[-1.4px] text-[#f2f3f5] tabular-nums md:text-[32px]" aria-live="off">{time}</p></div></header>
-      <section className="mt-8 flex flex-col justify-between gap-5 rounded-[20px] bg-[#141b7b] px-6 py-6 text-white shadow-[0_8px_28px_rgba(20,27,123,0.13)] sm:flex-row sm:items-center sm:px-8 sm:py-7"><div><div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-[1.8px] text-[#b9bee8]"><Sparkles size={13}/> Your personal space</div><h2 className="mt-3 text-[22px] font-semibold tracking-[-.6px] sm:text-[25px]">Everything you need to get going.</h2><p className="mt-1.5 text-[13px] text-[#d4d6ee]">A home for the tools that make your day.</p></div><div className="flex flex-wrap gap-2"><label className="relative flex cursor-pointer items-center justify-center gap-2 overflow-hidden rounded-xl border border-white/30 px-4 py-3 text-[12px] font-bold text-white transition hover:bg-white/10"><FilePlus2 size={16}/> Pick files<input ref={fileInputRef} type="file" multiple onChange={addLocalFiles} className="absolute inset-0 h-full w-full cursor-pointer opacity-0" aria-label="Choose files from your device"/></label><button type="button" onClick={() => folderInputRef.current?.click()} className="flex items-center justify-center gap-2 rounded-xl border border-white/30 px-4 py-3 text-[12px] font-bold text-white transition hover:bg-white/10"><FilePlus2 size={16}/> Pick folder</button><input ref={folderInputRef} type="file" directory webkitdirectory multiple onChange={(event) => { const entries = event.target.files ?? []; const dataTransfer = new DataTransfer(); entries.forEach(f => dataTransfer.items.add(f)); const dirEntry = dataTransfer.items[0]?.webkitGetAsEntry as FileSystemDirectoryEntry | undefined; if (dirEntry) { handleFolderSelect([dirEntry]); } else { addLocalFiles(event as React.ChangeEvent<HTMLInputElement>); } }} aria-label="Choose a folder from your device"/></div></section>
-      <section className="mt-9"><div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-end"><div><h2 className="text-[17px] font-bold tracking-[-.3px]">{active === "All apps" ? "Your apps" : active}</h2><p className="mt-1 text-[12px] text-[#a0a3aa]">Pick up right where you left off.</p></div><div className="relative w-full sm:w-[250px]"><Search size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-[#a0a3aa]"/><input value={query} onChange={e => setQuery(e.target.value)} placeholder="Find an app..." className="h-10 w-full rounded-xl border border-[#33363c] bg-[#1c1e22] pl-10 text-[#f2f3f5] pr-10 text-[12px] outline-none transition placeholder:text-[#858991] focus:border-[#a8acd5] focus:ring-2 focus:ring-[#141b7b]/10"/><span className="absolute right-3 top-1/2 -translate-y-1/2 rounded border border-[#33363c] px-1 py-0.5 text-[9px] text-[#a0a3aa]">⌘ K</span></div></div>
-      {visible.length ? <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">{visible.map(app => <article key={app.id} className="group relative rounded-[17px] border border-[#303238] bg-[#1c1e22] p-4 transition duration-200 hover:-translate-y-0.5 hover:border-[#44474f] hover:shadow-[0_8px_24px_rgba(30,35,30,.06)]"><div className="flex items-start gap-3.5"><a href={app.url} target="_blank" rel="noopener noreferrer" className="flex h-[46px] w-[46px] shrink-0 items-center justify-center rounded-[14px] text-[19px] font-bold text-[#f1f2f4] transition group-hover:scale-[1.04]" style={{ backgroundColor: app.color }} aria-label={`Open ${app.name}`}>{app.icon}</a><div className="min-w-0 flex-1 pt-0.5"><div className="flex items-center gap-1.5"><a href={app.url} target="_blank" rel="noopener noreferrer" className="truncate text-[14px] font-bold tracking-[-.2px] hover:text-[#141b7b]">{app.name}</a><a href={app.url} target="_blank" rel="noopener noreferrer" aria-label={`Open ${app.name}`} className="text-[#a8abb3] opacity-0 transition hover:text-[#141b7b] group-hover:opacity-100"><ArrowUpRight size={14}/></a></div><p className="mt-1 truncate text-[11px] text-[#aeb1b8]">{app.description}</p><span className="mt-2.5 inline-flex rounded-md bg-[#292b30] px-2 py-1 text-[9px] font-semibold text-[#b7bac1]">{app.category}</span></div><button onClick={() => toggleFavorite(app.id)} aria-label={app.favorite ? "Remove from favorites" : "Add to favorites"} className={`rounded-lg p-1.5 transition hover:bg-[#292b30] ${app.favorite ? "text-[#e2a647]" : "text-[#b7bab4] opacity-0 group-hover:opacity-100"}`}><Star size={15} fill={app.favorite ? "currentColor" : "none"}/></button></div></article>)}</div> : <div className="mt-5 rounded-[18px] border border-dashed border-[#3a3c42] bg-[#181a1e] px-5 py-12 text-center"><div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-[#292c42] text-[#c3c8ff]"><Link2 size={21}/></div><p className="mt-4 text-[14px] font-semibold">No apps here just yet</p><p className="mt-1 text-[12px] text-[#a0a3aa]">Add a shortcut or try a different search.</p><button onClick={() => setDialog(true)} className="mt-4 rounded-lg bg-[#141b7b] px-4 py-2.5 text-[11px] font-semibold text-white hover:bg-[#252d93]">Add an app</button></div>}</section>
+      <section className="mt-8 flex flex-col justify-between gap-5 rounded-[20px] bg-[#141b7b] px-6 py-6 text-white shadow-[0_8px_28px_rgba(20,27,123,0.13)] sm:flex-row sm:items-center sm:px-8 sm:py-7">
+              <div>
+                <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-[1.8px] text-[#b9bee8]">
+                  <Sparkles size={13}/> Your personal space
+                </div>
+                <h2 className="mt-3 text-[22px] font-semibold tracking-[-.6px] sm:text-[25px]">Everything you need to get going.</h2>
+                <p className="mt-1.5 text-[13px] text-[#d4d6ee]">A home for the tools that make your day.</p>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <label className="relative flex cursor-pointer items-center justify-center gap-2 overflow-hidden rounded-xl border border-white/30 px-4 py-3 text-[12px] font-bold text-white transition hover:bg-white/10">
+                  <FilePlus2 size={16}/> Pick files
+                  <input ref={fileInputRef} type="file" multiple onChange={addLocalFiles} className="absolute inset-0 h-full w-full cursor-pointer opacity-0" aria-label="Choose files from your device"/>
+                </label>
+                <button type="button" onClick={() => folderInputRef.current?.click()} className="flex items-center justify-center gap-2 rounded-xl border border-white/30 px-4 py-3 text-[12px] font-bold text-white transition hover:bg-white/10">
+                  <FilePlus2 size={16}/> Pick folder
+                </button>
+                <input ref={folderInputRef} type="file" directory webkitdirectory multiple onChange={(event) => { const entries = event.target.files ?? []; const dataTransfer = new DataTransfer(); entries.forEach(f => dataTransfer.items.add(f)); const dirEntry = dataTransfer.items[0]?.webkitGetAsEntry as FileSystemDirectoryEntry | undefined; if (dirEntry) { handleFolderSelect([dirEntry]); } else { addLocalFiles(event as React.ChangeEvent<HTMLInputElement>); } }} aria-label="Choose a folder from your device"/>
+              </div>
+            </section>
+      <section className="mt-9">
+                    <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
+                      <div>
+                        <h2 className="text-[17px] font-bold tracking-[-.3px]">{active === "All apps" ? "Your apps" : active}</h2>
+                        <p className="mt-1 text-[12px] text-[#a0a3aa]">Pick up right where you left off.</p>
+                      </div>
+                      <div className="relative w-full sm:w-[250px]">
+                        <Search size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-[#a0a3aa]"/>
+                        <input value={query} onChange={e => setQuery(e.target.value)} placeholder="Find an app..." className="h-10 w-full rounded-xl border border-[#33363c] bg-[#1c1e22] pl-10 text-[#f2f3f5] pr-10 text-[12px] outline-none transition placeholder:text-[#858991] focus:border-[#a8acd5] focus:ring-2 focus:ring-[#141b7b]/10"/>
+                        <span className="absolute right-3 top-1/2 -translate-y-1/2 rounded border border-[#33363c] px-1 py-0.5 text-[9px] text-[#a0a3aa]">⌘ K</span>
+                      </div>
+                    </div>
+                  </section>
+      {loadingApps ? (
+        <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+          {[...Array(6)].map((_, i) => (
+            <article key={i} className="rounded-[17px] border border-[#303238] bg-[#1c1e22] p-4 animate-pulse">
+              <div className="flex items-start gap-3.5">
+                <div className="flex h-[46px] w-[46px] shrink-0 items-center justify-center rounded-[14px] bg-[#292b30]" />
+                <div className="min-w-0 flex-1 pt-0.5">
+                  <div className="h-4 w-3/4 bg-[#292b30] rounded mb-2" />
+                  <div className="h-3 w-1/2 bg-[#292b30] rounded mb-2" />
+                  <div className="h-3 w-1/3 bg-[#292b30] rounded" />
+                </div>
+              </div>
+            </article>
+          ))}
+        </div>
+      ) : visible.length ? (
+        <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+          {visible.map(app => (
+            <article key={app.id} className="group relative rounded-[17px] border border-[#303238] bg-[#1c1e22] p-4 transition duration-200 hover:-translate-y-0.5 hover:border-[#44474f] hover:shadow-[0_8px_24px_rgba(30,35,30,.06)]">
+              <div className="flex items-start gap-3.5">
+                <a href={app.url} target="_blank" rel="noopener noreferrer" className="flex h-[46px] w-[46px] shrink-0 items-center justify-center rounded-[14px] text-[19px] font-bold text-[#f1f2f4] transition group-hover:scale-[1.04]" style={{ backgroundColor: app.color }} aria-label={`Open ${app.name}`}>{app.icon}</a>
+                <div className="min-w-0 flex-1 pt-0.5">
+                  <div className="flex items-center gap-1.5">
+                    <a href={app.url} target="_blank" rel="noopener noreferrer" className="truncate text-[14px] font-bold tracking-[-.2px] hover:text-[#141b7b]">{app.name}</a>
+                    <a href={app.url} target="_blank" rel="noopener noreferrer" aria-label={`Open ${app.name}`} className="text-[#a8abb3] opacity-0 transition hover:text-[#141b7b] group-hover:opacity-100"><ArrowUpRight size={14}/></a>
+                  </div>
+                  <p className="mt-1 truncate text-[11px] text-[#aeb1b8]">{app.description}</p>
+                  <span className="mt-2.5 inline-flex rounded-md bg-[#292b30] px-2 py-1 text-[9px] font-semibold text-[#b7bac1]">{app.category}</span>
+                </div>
+                <button onClick={() => toggleFavorite(app.id)} aria-label={app.favorite ? "Remove from favorites" : "Add to favorites"} className={`rounded-lg p-1.5 transition hover:bg-[#292b30] ${app.favorite ? "text-[#e2a647]" : "text-[#b7bab4] opacity-0 group-hover:opacity-100"}`}><Star size={15} fill={app.favorite ? "currentColor" : "none"}/></button>
+              </div>
+            </article>
+          ))}
+        </div>
+      ) : (
+        <div className="mt-5 rounded-[18px] border border-dashed border-[#3a3c42] bg-[#181a1e] px-5 py-12 text-center">
+          <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-[#292c42] text-[#c3c8ff]"><Link2 size={21}/></div>
+          <p className="mt-4 text-[14px] font-semibold">No apps here just yet</p>
+          <p className="mt-1 text-[12px] text-[#a0a3aa]">Add a shortcut or try a different search.</p>
+          <button onClick={() => setDialog(true)} className="mt-4 rounded-lg bg-[#141b7b] px-4 py-2.5 text-[11px] font-semibold text-white hover:bg-[#252d93]">Add an app</button>
+        </div>
+      )}
       {localFiles.length > 0 && <section className="mt-8"><div className="mb-4 flex items-center justify-between"><div><h2 className="text-[17px] font-bold tracking-[-.3px]">Files from this device</h2><p className="mt-1 text-[12px] text-[#a0a3aa]">Selected files are available while this page stays open.</p></div><button type="button" onClick={() => fileInputRef.current?.click()} className="flex items-center gap-2 rounded-lg border border-[#33363c] bg-[#1c1e22] px-3 py-2 text-[11px] font-semibold text-[#e1e2e5] hover:bg-[#292b30]"><FilePlus2 size={14}/> Add files</button></div><div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">{localFiles.map((file, index) => <div key={file.name + file.size + file.lastModified} className="flex items-center gap-3 rounded-[16px] border border-[#303238] bg-[#1c1e22] p-4"><button onClick={() => openLocalFile(file)} title={file.name} className="flex min-w-0 flex-1 items-center gap-3 text-left"><span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#292c42] text-[#c3c8ff]"><FileText size={18}/></span><span className="min-w-0"><span className="block truncate text-[12px] font-semibold text-[#f1f2f4]">{file.name}</span><span className="mt-1 block text-[10px] text-[#a0a3aa]">{file.size < 1024 * 1024 ? (file.size / 1024).toFixed(0) + " KB" : (file.size / (1024 * 1024)).toFixed(1) + " MB"}</span></span></button><button onClick={() => setLocalFiles(current => current.filter((_, i) => i !== index))} aria-label={"Remove " + file.name} className="rounded-lg p-1.5 text-[#a0a39e] hover:bg-[#292b30] hover:text-[#c3c5cb]"><CloseIcon size={15}/></button></div>)}</div></section>}
       <div className="mt-8 flex items-center justify-between border-t border-[#303238] pt-4 text-[10px] text-[#a0a3aa]"><span>{apps.length} apps in your Rain dashboard</span><span className="flex items-center gap-1.5"><Command size={12}/> Make it yours</span></div>
     </main>
