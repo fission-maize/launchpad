@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { ArrowUpRight, FilePlus2, FileText, X as CloseIcon, Bookmark, BriefcaseBusiness, CalendarDays, Check, ChevronDown, CircleHelp, Clock3, Command, Grid2X2, LayoutDashboard, Link2, Plus, Search, Settings2, Sparkles, Star, X, LogOut, User } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { SessionContext } from "@/components/SessionContextProvider";
@@ -197,7 +197,7 @@ export default function Index() {
                 <button type="button" onClick={() => folderInputRef.current?.click()} className="flex items-center justify-center gap-2 rounded-xl border border-white/30 px-4 py-3 text-[12px] font-bold text-white transition hover:bg-white/10">
                   <FilePlus2 size={16}/> Pick folder
                 </button>
-                <input ref={folderInputRef} type="file" directory webkitdirectory multiple onChange={(event) => { const entries = event.target.files ?? []; const dataTransfer = new DataTransfer(); entries.forEach(f => dataTransfer.items.add(f)); const dirEntry = dataTransfer.items[0]?.webkitGetAsEntry as FileSystemDirectoryEntry | undefined; if (dirEntry) { handleFolderSelect([dirEntry]); } else { addLocalFiles(event as React.ChangeEvent<HTMLInputElement>); } }} aria-label="Choose a folder from your device"/>
+                <input ref={folderInputRef} type="file" multiple onChange={(event) => { const files = Array.from(event.target.files ?? []); const dataTransfer = new DataTransfer(); files.forEach(f => dataTransfer.items.add(f)); const dirEntry = dataTransfer.items[0]?.webkitGetAsEntry as FileSystemDirectoryEntry | undefined; if (dirEntry) { handleFolderSelect([dirEntry]); } else { addLocalFiles(event as React.ChangeEvent<HTMLInputElement>); } }} aria-label="Choose a folder from your device"/>
               </div>
             </section>
       <section className="mt-9">

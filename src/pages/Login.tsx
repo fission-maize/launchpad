@@ -128,35 +128,35 @@ export default function Login() {
     try {
       // Step 1: Get challenge from Supabase
       const { data: challengeData, error: challengeError } = await supabase.auth.mfa.enroll({
-        factorType: "passkey",
-        friendlyName: email,
-      });
+              factorType: "webauthn",
+              friendlyName: email,
+            });
 
       if (challengeError) throw challengeError;
 
       // Step 2: Create credential using WebAuthn
       const publicKeyCredential = await navigator.credentials.create({
-        publicKey: {
-          challenge: base64ToArrayBuffer(challengeData.challenge),
-          rp: { name: "Rain", id: window.location.hostname },
-          user: {
-            id: base64ToArrayBuffer(challengeData.user_id),
-            name: email,
-            displayName: email,
-          },
-          pubKeyCredParams: [
-            { type: "public-key", alg: -7 }, // ES256
-            { type: "public-key", alg: -257 }, // RS256
-          ],
-          authenticatorSelection: {
-            authenticatorAttachment: "platform",
-            userVerification: "required",
-            requireResidentKey: true,
-          },
-          timeout: 60000,
-          attestation: "direct",
-        } as CredentialCreationOptions,
-      }) as PasskeyCredential;
+              publicKey: {
+                challenge: base64ToArrayBuffer(challengeData.challenge),
+                rp: { name: "Rain", id: window.location.hostname },
+                user: {
+                  id: base64ToArrayBuffer(challengeData.user_id),
+                  name: email,
+                  displayName: email,
+                },
+                pubKeyCredParams: [
+                  { type: "public-key", alg: -7 }, // ES256
+                  { type: "public-key", alg: -257 }, // RS256
+                ],
+                authenticatorSelection: {
+                  authenticatorAttachment: "platform",
+                  userVerification: "required",
+                  requireResidentKey: true,
+                },
+                timeout: 60000,
+                attestation: "direct",
+              } as PublicKeyCredentialCreationOptions,
+            }) as PasskeyCredential;
 
       if (!publicKeyCredential) {
         throw new Error("Failed to create passkey");
@@ -165,8 +165,7 @@ export default function Login() {
       // Step 3: Verify the credential with Supabase
       const { error: verifyError } = await supabase.auth.mfa.challengeAndVerify({
         factorId: challengeData.factor_id,
-        code: arrayBufferToBase64(publicKeyCredential.response.attestationObject),
-        challenge: challengeData.challenge,
+        code: arrayBufferToBase64((publicKeyCredential.response as AuthenticatorAttestationResponse).attestationObject),
       });
 
       if (verifyError) throw verifyError;
@@ -206,35 +205,34 @@ export default function Login() {
 
     try {
       // Step 1: Get challenge from Supabase
-      const { data: challengeData, error: challengeError } = await supabase.auth.mfa.challenge({
-        factorType: "passkey",
-      });
+            const { data: challengeData, error: challengeError } = await supabase.auth.mfa.challenge({
+              factorType: "webauthn",
+            });
 
       if (challengeError) throw challengeError;
 
       // Step 2: Get credential using WebAuthn
-      const publicKeyCredential = await navigator.credentials.get({
-        publicKey: {
-          challenge: base64ToArrayBuffer(challengeData.challenge),
-          allowCredentials: [{
-            id: base64ToArrayBuffer(challengeData.credential_id),
-            type: "public-key",
-          }],
-          userVerification: "required",
-          timeout: 60000,
-        } as CredentialRequestOptions,
-      }) as PasskeyCredential;
+            const publicKeyCredential = await navigator.credentials.get({
+              publicKey: {
+                challenge: base64ToArrayBuffer(challengeData.challenge),
+                allowCredentials: [{
+                  id: base64ToArrayBuffer(challengeData.credential_id),
+                  type: "public-key",
+                }],
+                userVerification: "required",
+                timeout: 60000,
+              } as PublicKeyCredentialRequestOptions,
+            }) as PasskeyCredential;
 
       if (!publicKeyCredential) {
         throw new Error("Failed to get passkey");
       }
 
       // Step 3: Verify the credential with Supabase
-      const { data: verifyData, error: verifyError } = await supabase.auth.mfa.verify({
-        factorId: challengeData.factor_id,
-        code: arrayBufferToBase64(publicKeyCredential.response.authenticatorData),
-        challenge: challengeData.challenge,
-      });
+            const { data: verifyData, error: verifyError } = await supabase.auth.mfa.verify({
+              factorId: challengeData.factor_id,
+              code: arrayBufferToBase64((publicKeyCredential.response as AuthenticatorAssertionResponse).authenticatorData),
+            });
 
       if (verifyError) throw verifyError;
 
