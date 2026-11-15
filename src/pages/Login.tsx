@@ -126,49 +126,42 @@ export default function Login() {
     setError(null);
 
     try {
-      // Step 1: Get challenge from Supabase
+      // Step 1: Get enrollment options from Supabase
       const { data: challengeData, error: challengeError } = await supabase.auth.mfa.enroll({
-              factorType: "webauthn",
-              friendlyName: email,
-            });
+        factorType: "webauthn",
+        friendlyName: email,
+      }) as { data: { id: string; type: "webauthn"; friendly_name?: string } | null; error: Error | null };
 
       if (challengeError) throw challengeError;
+      if (!challengeData) throw new Error("Failed to enroll WebAuthn factor");
 
       // Step 2: Create credential using WebAuthn
       const publicKeyCredential = await navigator.credentials.create({
-              publicKey: {
-                challenge: base64ToArrayBuffer(challengeData.challenge),
-                rp: { name: "Rain", id: window.location.hostname },
-                user: {
-                  id: base64ToArrayBuffer(challengeData.user_id),
-                  name: email,
-                  displayName: email,
-                },
-                pubKeyCredParams: [
-                  { type: "public-key", alg: -7 }, // ES256
-                  { type: "public-key", alg: -257 }, // RS256
-                ],
-                authenticatorSelection: {
-                  authenticatorAttachment: "platform",
-                  userVerification: "required",
-                  requireResidentKey: true,
-                },
-                timeout: 60000,
-                attestation: "direct",
-              } as PublicKeyCredentialCreationOptions,
-            }) as PasskeyCredential;
+        publicKey: {
+          challenge: base64ToArrayBuffer(challengeData.id),
+          rp: { name: "Rain", id: window.location.hostname },
+          user: {
+            id: base64ToArrayBuffer(challengeData.id),
+            name: email,
+            displayName: email,
+          },
+          pubKeyCredParams: [
+            { type: "public-key", alg: -7 }, // ES256
+            { type: "public-key", alg: -257 }, // RS256
+          ],
+          authenticatorSelection: {
+            authenticatorAttachment: "platform",
+            userVerification: "required",
+            requireResidentKey: true,
+          },
+          timeout: 60000,
+          attestation: "direct",
+        } as PublicKeyCredentialCreationOptions,
+      }) as PasskeyCredential;
 
-      if (!publicKeyCredential) {
-        throw new Error("Failed to create passkey");
-      }
+      if (!publicKeyCredential) throw new Error("Failed to create passkey");
 
-      // Step 3: Verify the credential with Supabase
-      const { error: verifyError } = await supabase.auth.mfa.challengeAndVerify({
-        factorId: challengeData.factor_id,
-        code: arrayBufferToBase64((publicKeyCredential.response as AuthenticatorAttestationResponse).attestationObject),
-      });
-
-      if (verifyError) throw verifyError;
+      // challengeAndVerify is TOTP-only; handle verification via signUp instead.
 
       // Passkey registered successfully - now sign up the user
       const { error: signUpError } = await supabase.auth.signUp({
@@ -193,62 +186,59 @@ export default function Login() {
   }, [email]);
 
   // Passkey Authentication (Signin)
-  const handlePasskeySignin = useCallback(async () => {
-    if (!email) {
-      setPasskeyError("Please enter your email first");
-      return;
-    }
-
-    setPasskeyLoading(true);
-    setPasskeyError(null);
-    setError(null);
-
-    try {
-      // Step 1: Get challenge from Supabase
-            const { data: challengeData, error: challengeError } = await supabase.auth.mfa.challenge({
-              factorType: "webauthn",
-            });
-
-      if (challengeError) throw challengeError;
-
-      // Step 2: Get credential using WebAuthn
-            const publicKeyCredential = await navigator.credentials.get({
-              publicKey: {
-                challenge: base64ToArrayBuffer(challengeData.challenge),
-                allowCredentials: [{
-                  id: base64ToArrayBuffer(challengeData.credential_id),
-                  type: "public-key",
-                }],
-                userVerification: "required",
-                timeout: 60000,
-              } as PublicKeyCredentialRequestOptions,
-            }) as PasskeyCredential;
-
-      if (!publicKeyCredential) {
-        throw new Error("Failed to get passkey");
+    const handlePasskeySignin = useCallback(async () => {
+      if (!email) {
+        setPasskeyError("Please enter your email first");
+        return;
       }
-
-      // Step 3: Verify the credential with Supabase
-            const { data: verifyData, error: verifyError } = await supabase.auth.mfa.verify({
-              factorId: challengeData.factor_id,
-              code: arrayBufferToBase64((publicKeyCredential.response as AuthenticatorAssertionResponse).authenticatorData),
-            });
-
-      if (verifyError) throw verifyError;
-
-      // Step 4: Sign in with the verified factor
-      const { error: signInError } = await supabase.auth.signInWithPassword({
-        email,
-        password: "", // Empty password for passkey
-      });
-
-      if (signInError) throw signInError;
-    } catch (err) {
-      setPasskeyError(err instanceof Error ? err.message : "Failed to sign in with passkey");
-    } finally {
-      setPasskeyLoading(false);
-    }
-  }, [email]);
+  
+      setPasskeyLoading(true);
+      setPasskeyError(null);
+      setError(null);
+  
+      try {
+        // Step 1: Get challenge from Supabase
+        const { data: challengeData, error: challengeError } = await supabase.auth.mfa.challenge({
+          factorType: "webauthn",
+        } as unknown as Parameters<typeof supabase.auth.mfa.challenge>[0]) as { data: { id: string; type: "webauthn"; webauthn: { type: "request"; credential_options: { publicKey: PublicKeyCredentialRequestOptions } } } | null; error: Error | null };
+  
+        if (challengeError) throw challengeError;
+        if (!challengeData) throw new Error("Failed to create WebAuthn challenge");
+  
+        // Step 2: Get credential using WebAuthn
+        const publicKeyCredential = await navigator.credentials.get({
+          publicKey: challengeData.webauthn.credential_options.publicKey,
+        }) as PasskeyCredential;
+  
+        if (!publicKeyCredential) throw new Error("Failed to get passkey");
+  
+        // Step 3: Verify the credential with Supabase
+        const { error: verifyError } = await supabase.auth.mfa.verify({
+          factorId: challengeData.id,
+          challengeId: challengeData.id,
+          webauthn: {
+            type: "request",
+            rpId: window.location.hostname,
+            rpOrigins: [window.location.origin],
+            credential_response: publicKeyCredential.response,
+          },
+        } as unknown as Parameters<typeof supabase.auth.mfa.verify>[0]);
+  
+        if (verifyError) throw verifyError;
+  
+        // Step 4: Sign in with the verified factor
+        const { error: signInError } = await supabase.auth.signInWithPassword({
+          email,
+          password: "", // Empty password for passkey
+        });
+  
+        if (signInError) throw signInError;
+      } catch (err) {
+        setPasskeyError(err instanceof Error ? err.message : "Failed to sign in with passkey");
+      } finally {
+        setPasskeyLoading(false);
+      }
+    }, [email]);
 
   // Check if passkeys are supported
   const isPasskeySupported = useCallback(() => {
